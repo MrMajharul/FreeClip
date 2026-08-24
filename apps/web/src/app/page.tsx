@@ -10,6 +10,8 @@ export default function Home() {
   const [ytUrl, setYtUrl] = useState("");
   const [isFetching, setIsFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [ytMetadata, setYtMetadata] = useState<{ title: string; duration: number; thumbnail: string; id: string } | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const handleUpload = (file: File, url: string, duration: number) => {
     setVideoData({ file, url, duration });
@@ -22,31 +24,56 @@ export default function Home() {
 
     try {
       // Assuming API runs on port 4000
-      const apiUrl = `http://localhost:4000/api/extract?url=${encodeURIComponent(ytUrl)}`;
+      const apiUrl = `http://localhost:4000/api/extract`;
       
-      const response = await fetch(apiUrl);
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ url: ytUrl })
+      });
+      
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `Server responded with ${response.status}`);
+        throw new Error(errData.message || errData.error || `Server responded with ${response.status}`);
       }
 
-      const blob = await response.blob();
+      const metadata = await response.json();
+      setYtMetadata(metadata);
       
-      // Need a synthetic File object for the VideoEditor to work seamlessly
-      const file = new File([blob], "youtube-video.mp4", { type: "video/mp4" });
-      const url = URL.createObjectURL(file);
-      
-      // Extract duration by creating a temporary video element
-      const tempVideo = document.createElement("video");
-      tempVideo.src = url;
-      tempVideo.onloadedmetadata = () => {
-        handleUpload(file, url, tempVideo.duration);
-      };
     } catch (err: any) {
-      setFetchError(err.message || "Failed to load video");
+      setFetchError(err.message || "Failed to load video metadata");
       console.error(err);
     } finally {
       setIsFetching(false);
+    }
+  };
+
+  const handleStartEditing = async () => {
+    if (!ytMetadata || !ytUrl) return;
+    setIsDownloading(true);
+    setFetchError(null);
+
+    try {
+      const downloadUrl = `http://localhost:4000/api/download?url=${encodeURIComponent(ytUrl)}`;
+      const response = await fetch(downloadUrl);
+      
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || errData.error || `Server responded with ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const file = new File([blob], "youtube-video.mp4", { type: "video/mp4" });
+      const url = URL.createObjectURL(file);
+      
+      handleUpload(file, url, ytMetadata.duration);
+    } catch (err: any) {
+      setFetchError(err.message || "Failed to download media stream");
+      console.error(err);
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -94,6 +121,26 @@ export default function Home() {
                   <div className="mt-4 flex items-center gap-2 text-red-400 text-sm">
                     <AlertCircle className="w-4 h-4" />
                     <span>{fetchError}</span>
+                  </div>
+                )}
+                
+                {ytMetadata && (
+                  <div className="mt-6 w-full flex items-start gap-4 p-4 bg-black/40 rounded-xl border border-white/10 text-left">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={ytMetadata.thumbnail} alt={ytMetadata.title} className="w-32 h-auto rounded-lg object-cover shadow-lg" />
+                    <div className="flex flex-col">
+                      <h4 className="font-bold line-clamp-2">{ytMetadata.title}</h4>
+                      <p className="text-sm text-muted-foreground mt-1">ID: {ytMetadata.id}</p>
+                      <p className="text-sm text-muted-foreground">Duration: {Math.floor(ytMetadata.duration / 60)}:{(ytMetadata.duration % 60).toString().padStart(2, '0')}</p>
+                      <button 
+                        onClick={handleStartEditing}
+                        disabled={isDownloading}
+                        className="mt-3 bg-accent hover:bg-accent/90 text-accent-foreground font-semibold px-4 py-2 rounded-lg transition-transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[140px] text-sm self-start"
+                      >
+                        {isDownloading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                        {isDownloading ? "Downloading..." : "Start Editing"}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

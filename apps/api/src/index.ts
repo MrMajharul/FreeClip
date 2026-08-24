@@ -67,10 +67,101 @@ app.get("/api/health", (c) => {
   return c.json({ status: "ok" });
 });
 
-app.get("/api/extract", async (c) => {
+app.post("/api/extract", async (c) => {
   // Simple IP extraction
   const ip = c.req.header('x-forwarded-for') || "unknown";
   
+  if (isRateLimited(ip)) {
+    return c.json({ error: "Too many requests. Please wait a minute." }, 429);
+  }
+
+  let body: { url?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const url = body.url;
+  if (!url || !validateVideoUrl(url)) {
+    return c.json({ error: "Invalid YouTube URL provided." }, 400);
+  }
+
+  // Spawn yt-dlp to get JSON metadata only
+  // We specify the strict format requirements: pre-merged MP4 container with H.264 (avc) and AAC (mp4a).
+  const ytdlp = spawn("yt-dlp", [
+    "-f", "best[ext=mp4][vcodec^=avc][acodec^=mp4a]",
+    "--dump-json",
+    "--no-playlist",
+    url
+  ]);
+
+  let stdoutData = "";
+  ytdlp.stdout.on("data", (data) => {
+    stdoutData += data.toString();
+  });
+
+  let stderrData = "";
+  ytdlp.stderr.on("data", (data) => {
+    stderrData += data.toString();
+    console.log(`yt-dlp log: ${data.toString()}`);
+  });
+
+  return new Promise((resolve) => {
+    ytdlp.on("close", (code) => {
+      if (code !== 0) {
+        if (stderrData.includes("Requested format is not available")) {
+          return resolve(c.json({
+            code: "UNSUPPORTED_MEDIA",
+            message: "Unsupported media. Could not find a compatible H.264/AAC MP4 format."
+          }, 400));
+        }
+        return resolve(c.json({ error: "Failed to extract metadata." }, 500));
+      }
+      try {
+        const metadata = JSON.parse(stdoutData);
+        
+        // Enforce 60-second maximum duration limit
+        if (metadata.duration > 60) {
+          return resolve(c.json({
+            code: "VIDEO_TOO_LONG",
+            message: "Videos must be 60 seconds or shorter."
+          }, 400));
+        }
+
+        // Enforce 50 MB file size limit
+        const sizeBytes = metadata.filesize || metadata.filesize_approx;
+        const maxBytes = 50 * 1024 * 1024; // 50 MB
+        if (sizeBytes && sizeBytes > maxBytes) {
+          return resolve(c.json({
+            code: "FILE_TOO_LARGE",
+            message: "Video file exceeds the 50 MB limit."
+          }, 400));
+        }
+
+        resolve(c.json({
+          title: metadata.title,
+          duration: metadata.duration,
+          thumbnail: metadata.thumbnail,
+          id: metadata.id
+        }));
+      } catch (err) {
+        resolve(c.json({ error: "Failed to parse metadata." }, 500));
+      }
+    });
+
+    // Timeout safety
+    setTimeout(() => {
+      if (!ytdlp.killed) {
+        ytdlp.kill();
+        resolve(c.json({ error: "Extraction timed out." }, 504));
+      }
+    }, 15000); // 15 seconds for metadata is plenty
+  });
+});
+
+app.get("/api/download", async (c) => {
+  const ip = c.req.header('x-forwarded-for') || "unknown";
   if (isRateLimited(ip)) {
     return c.json({ error: "Too many requests. Please wait a minute." }, 429);
   }
@@ -82,47 +173,41 @@ app.get("/api/extract", async (c) => {
 
   const passThrough = new PassThrough();
 
-  // Spawn yt-dlp
-  // We use best[ext=mp4] to get a single pre-merged stream (usually 720p).
-  // -o - pipes directly to stdout
   const ytdlp = spawn("yt-dlp", [
-    "-f", "best[ext=mp4]/best",
+    "-f", "best[ext=mp4][vcodec^=avc][acodec^=mp4a]",
     "-o", "-",
-    "--max-filesize", "50M",
     url
   ]);
 
   ytdlp.stdout.pipe(passThrough);
 
   ytdlp.stderr.on("data", (data) => {
-    // Keep logs internal, don't stream stderr to user
-    console.log(`yt-dlp log: ${data.toString()}`);
+    console.log(`yt-dlp stream log: ${data.toString()}`);
   });
 
   ytdlp.on("error", (error) => {
-    console.error("Failed to start yt-dlp:", error);
+    console.error("Failed to start yt-dlp streaming:", error);
     passThrough.end();
   });
 
   ytdlp.on("close", (code) => {
-    console.log(`yt-dlp exited with code ${code}`);
+    console.log(`yt-dlp stream exited with code ${code}`);
     passThrough.end();
   });
 
-  // Set timeout to kill process if it runs too long (e.g. 60 seconds)
+  // 60-second timeout to kill the stream if it takes too long
   setTimeout(() => {
     if (!ytdlp.killed) {
-      console.log("yt-dlp timeout, killing process.");
+      console.log("yt-dlp stream timeout, killing process.");
       ytdlp.kill();
       passThrough.end();
     }
   }, 60000);
 
-  // Return the stream to the client
   c.header("Content-Type", "video/mp4");
   c.header("Content-Disposition", "attachment; filename=\"stream.mp4\"");
   
-  // @ts-ignore - Hono supports Node streams directly in the body
+  // @ts-ignore
   return c.body(passThrough);
 });
 
