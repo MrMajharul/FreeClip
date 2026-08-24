@@ -34,17 +34,15 @@ export default function Home() {
               Edit Video
             </h1>
             
-            <VideoEditor url={videoData.url} duration={videoData.duration} />
-            
-            <button 
-              className="mt-8 px-6 py-2 rounded-full border border-border hover:bg-white/5 transition-colors text-muted-foreground"
-              onClick={() => {
+            <VideoEditor 
+              file={videoData.file} 
+              url={videoData.url} 
+              duration={videoData.duration} 
+              onStartOver={() => {
                 URL.revokeObjectURL(videoData.url);
                 setVideoData(null);
               }}
-            >
-              Start Over
-            </button>
+            />
           </div>
         )}
       </div>

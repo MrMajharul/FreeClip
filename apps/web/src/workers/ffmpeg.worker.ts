@@ -61,7 +61,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
 
         // Send back ArrayBuffer
         const buffer = (data as Uint8Array).buffer;
-        postMessage({ type: "COMPLETE", data: buffer } as WorkerResponse, [buffer]);
+        (postMessage as (message: any, transfer?: Transferable[]) => void)({ type: "COMPLETE", data: buffer } as WorkerResponse, [buffer]);
         break;
 
       case "CANCEL":

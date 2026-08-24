@@ -22,9 +22,10 @@ interface VideoEditorProps {
   file: File;
   url: string;
   duration: number;
+  onStartOver: () => void;
 }
 
-export default function VideoEditor({ file, url, duration }: VideoEditorProps) {
+export default function VideoEditor({ file, url, duration, onStartOver }: VideoEditorProps) {
   // Trimmer state
   const [startTime, setStartTime] = useState(0);
   const [endTime, setEndTime] = useState(duration);
@@ -176,25 +177,28 @@ export default function VideoEditor({ file, url, duration }: VideoEditorProps) {
           
           <button 
             onClick={() => setIsCropMode(!isCropMode)}
+            disabled={exportState === "initializing" || exportState === "processing"}
             className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${
               isCropMode 
                 ? "bg-primary text-primary-foreground border-primary" 
                 : "border-border hover:bg-white/5"
-            }`}
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             <Scissors className="w-4 h-4" />
             {isCropMode ? "Save Crop" : "Crop Video"}
           </button>
         </div>
 
-        <TimelineTrimmer 
-          duration={duration}
-          currentTime={currentTime}
-          startTime={startTime}
-          endTime={endTime}
-          onChange={handleTrimChange}
-          onSeek={handleSeek}
-        />
+        <div className={`transition-opacity ${exportState === "initializing" || exportState === "processing" ? "opacity-50 pointer-events-none" : ""}`}>
+          <TimelineTrimmer 
+            duration={duration}
+            currentTime={currentTime}
+            startTime={startTime}
+            endTime={endTime}
+            onChange={handleTrimChange}
+            onSeek={handleSeek}
+          />
+        </div>
 
         {/* Export Section */}
         <div className="mt-8 pt-6 border-t border-border flex flex-col items-center gap-4">
@@ -209,7 +213,7 @@ export default function VideoEditor({ file, url, duration }: VideoEditorProps) {
             </button>
           )}
 
-          {exportState === "loading" && (
+          {exportState === "initializing" && (
             <div className="flex items-center gap-3 text-muted-foreground">
               <Loader2 className="w-5 h-5 animate-spin" />
               <span>Preparing video engine...</span>
@@ -273,6 +277,17 @@ export default function VideoEditor({ file, url, duration }: VideoEditorProps) {
               </button>
             </div>
           )}
+        </div>
+        
+        {/* Start Over Control */}
+        <div className="mt-8 text-center">
+          <button 
+            disabled={exportState === "initializing" || exportState === "processing"}
+            className="px-6 py-2 rounded-full border border-border hover:bg-white/5 transition-colors text-muted-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={onStartOver}
+          >
+            Start Over
+          </button>
         </div>
       </div>
     </div>

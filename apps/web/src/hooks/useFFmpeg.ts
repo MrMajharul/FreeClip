@@ -1,7 +1,28 @@
 import { useState, useRef, useCallback } from "react";
 import { WorkerMessage, WorkerResponse, CropData } from "@freeclip/shared";
 
-export type ExportState = "idle" | "loading" | "ready" | "processing" | "complete" | "error" | "cancelled";
+export type ExportState = "idle" | "initializing" | "ready" | "processing" | "complete" | "error" | "cancelled";
+
+const ERROR_MAP: Record<string, string> = {
+  "MEM": "This video is too demanding for your browser memory. Try a smaller video.",
+  "FORMAT": "Unable to process this video format. Please try another video.",
+  "INIT": "Video engine could not be initialized.",
+  "DEFAULT": "Video processing failed. Please try again."
+};
+
+function mapErrorMessage(rawError: string): string {
+  const lower = rawError.toLowerCase();
+  if (lower.includes("memory") || lower.includes("aborted(oom") || lower.includes("out of memory")) {
+    return ERROR_MAP.MEM;
+  }
+  if (lower.includes("format") || lower.includes("codec")) {
+    return ERROR_MAP.FORMAT;
+  }
+  if (lower.includes("not loaded") || lower.includes("init")) {
+    return ERROR_MAP.INIT;
+  }
+  return ERROR_MAP.DEFAULT;
+}
 
 export function useFFmpeg() {
   const workerRef = useRef<Worker | null>(null);
@@ -13,7 +34,7 @@ export function useFFmpeg() {
 
   const initWorker = useCallback(() => {
     if (workerRef.current) return;
-    setExportState("loading");
+    setExportState("initializing");
     
     // In Next.js, workers are instantiated using new URL relative to import.meta.url
     workerRef.current = new Worker(new URL("../workers/ffmpeg.worker.ts", import.meta.url), {
@@ -37,7 +58,8 @@ export function useFFmpeg() {
           setExportState("complete");
           break;
         case "ERROR":
-          setErrorMsg(res.message);
+          console.error("FFmpeg Worker Error Details:", res.message); // Keep dev logs
+          setErrorMsg(mapErrorMessage(res.message));
           setExportState("error");
           cleanupWorker();
           break;
@@ -56,7 +78,11 @@ export function useFFmpeg() {
       workerRef.current.terminate();
       workerRef.current = null;
     }
-  }, []);
+    // Cleanup generated object URL to prevent memory leaks on unmount
+    if (outputUrl) {
+      URL.revokeObjectURL(outputUrl);
+    }
+  }, [outputUrl]);
 
   const processVideo = useCallback(async (
     file: File,

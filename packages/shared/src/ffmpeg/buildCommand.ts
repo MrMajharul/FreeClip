@@ -33,11 +33,15 @@ export function buildFFmpegCommand({
     args.push("-vf", cropFilter);
   }
 
-  // Codecs (re-encoding is required for crop or accurate trimming with filters)
+  // Video Codec
   args.push("-c:v", "libx264");
-  args.push("-c:a", "aac");
+  args.push("-preset", "fast"); // Speed up web worker encoding
   
-  // Fast start for web playback (optional but good practice)
+  // Audio Codec
+  // By omitting -c:a, we allow FFmpeg to use the default for mp4 (aac) if an audio stream exists, 
+  // and gracefully do nothing if the video has no audio track.
+  
+  // Fast start for web playback
   args.push("-movflags", "+faststart");
 
   // Output
