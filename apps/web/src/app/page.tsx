@@ -36,7 +36,7 @@ export default function Home() {
       
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.message || errData.error || `Server responded with ${response.status}`);
+        throw new Error(errData.error?.message || `Server responded with ${response.status}`);
       }
 
       const metadata = await response.json();
@@ -61,7 +61,7 @@ export default function Home() {
       
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.message || errData.error || `Server responded with ${response.status}`);
+        throw new Error(errData.error?.message || `Server responded with ${response.status}`);
       }
 
       const blob = await response.blob();
