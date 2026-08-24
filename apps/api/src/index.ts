@@ -27,16 +27,33 @@ function isRateLimited(ip: string): boolean {
   return false;
 }
 
-function validateYoutubeUrl(urlString: string): boolean {
+function validateVideoUrl(urlString: string): boolean {
   try {
     const url = new URL(urlString);
-    if (url.protocol !== "https:") return false;
     
+    // 1. Enforce HTTPS only (blocks file://, ftp://, http://)
+    if (url.protocol !== "https:") {
+      return false;
+    }
+    
+    // 2. Strict Domain Allowlist
     const allowedHosts = ["youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com"];
-    if (!allowedHosts.includes(url.hostname)) return false;
+    if (!allowedHosts.includes(url.hostname)) {
+      return false;
+    }
     
-    // Prevent SSRF / local IP binding attempts in hostname
-    if (url.hostname.includes("localhost") || url.hostname.match(/^127\./) || url.hostname.match(/^192\.168\./) || url.hostname.match(/^10\./)) {
+    // 3. String-level SSRF defense (Reject private/local IPs hiding in hostnames or credentials)
+    // Even though hostname is checked above, URL parsers can sometimes be tricked (e.g. https://youtube.com@127.0.0.1/)
+    // so we defensively scan the raw string for private IPs or localhost references.
+    const rawLower = urlString.toLowerCase();
+    if (
+      rawLower.includes("localhost") || 
+      rawLower.match(/(^|\/|@)127\.\d+\.\d+\.\d+/) || 
+      rawLower.match(/(^|\/|@)192\.168\.\d+\.\d+/) || 
+      rawLower.match(/(^|\/|@)10\.\d+\.\d+\.\d+/) || 
+      rawLower.match(/(^|\/|@)172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+/) ||
+      rawLower.includes("[::1]") // IPv6 localhost
+    ) {
       return false;
     }
     
@@ -59,7 +76,7 @@ app.get("/api/extract", async (c) => {
   }
 
   const url = c.req.query("url");
-  if (!url || !validateYoutubeUrl(url)) {
+  if (!url || !validateVideoUrl(url)) {
     return c.json({ error: "Invalid YouTube URL provided." }, 400);
   }
 
