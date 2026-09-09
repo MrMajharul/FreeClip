@@ -109,7 +109,11 @@ export default function UploadZone({ onUpload }: UploadZoneProps) {
       </div>
 
       {error && (
-        <div className="mt-6 flex items-center gap-3 text-red-400 bg-red-400/10 border border-red-400/20 px-6 py-4 rounded-xl w-full">
+        <div
+          role="alert"
+          data-testid="upload-error"
+          className="mt-6 flex items-center gap-3 text-red-400 bg-red-400/10 border border-red-400/20 px-6 py-4 rounded-xl w-full"
+        >
           <FileWarning className="w-5 h-5 flex-shrink-0" />
           <p className="font-medium">{error}</p>
         </div>

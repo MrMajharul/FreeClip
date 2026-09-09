@@ -15,23 +15,27 @@ WORKDIR /app
 
 # Copy root monorepo config
 COPY package*.json ./
-COPY tsconfig.json ./
 
-# Copy API workspace
+# Copy API workspace manifests first (layer cache)
 COPY apps/api/package*.json ./apps/api/
 COPY apps/api/tsconfig.json ./apps/api/
 
-# Install dependencies
+# Install all dependencies
 RUN npm install
 
 # Copy source code
 COPY apps/api/src ./apps/api/src
 
-# Set working directory to API
+# Compile TypeScript → JavaScript (production build)
 WORKDIR /app/apps/api
+RUN npm run build
+
+# Remove devDependencies to slim the image
+RUN npm prune --production
 
 # Expose port
 EXPOSE 4000
 
-# Start server
-CMD ["npm", "run", "dev"]
+# Run production build
+ENV NODE_ENV=production
+CMD ["node", "dist/index.js"]

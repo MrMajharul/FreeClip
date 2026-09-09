@@ -1,13 +1,23 @@
 import { useState, useRef, useCallback } from "react";
 import { WorkerMessage, WorkerResponse, CropData } from "@freeclip/shared";
+import { perf } from "@/lib/perf";
 
-export type ExportState = "idle" | "initializing" | "ready" | "processing" | "complete" | "error" | "cancelled";
+export type ExportState =
+  | "idle"
+  | "initializing"
+  | "ready"
+  | "processing"
+  | "complete"
+  | "error"
+  | "cancelled";
+
+// ─── Error mapping ────────────────────────────────────────────────────────────
 
 const ERROR_MAP: Record<string, string> = {
-  "MEM": "This video is too demanding for your browser memory. Try a smaller video.",
-  "FORMAT": "Unable to process this video format. Please try another video.",
-  "INIT": "Video engine could not be initialized.",
-  "DEFAULT": "Video processing failed. Please try again."
+  MEM: "This video is too demanding for your browser memory. Try a smaller video.",
+  FORMAT: "Unable to process this video format. Please try another video.",
+  INIT: "Video engine could not be initialized.",
+  DEFAULT: "Video processing failed. Please try again.",
 };
 
 function mapErrorMessage(rawError: string): string {
@@ -24,53 +34,27 @@ function mapErrorMessage(rawError: string): string {
   return ERROR_MAP.DEFAULT;
 }
 
+// ─── Hook ─────────────────────────────────────────────────────────────────────
+
 export function useFFmpeg() {
   const workerRef = useRef<Worker | null>(null);
-  
+  // Store outputUrl in a ref as well as state so cleanupWorker always sees
+  // the current value, avoiding the stale-closure bug where the URL captured
+  // at creation time is never revoked.
+  const outputUrlRef = useRef<string | null>(null);
+
   const [exportState, setExportState] = useState<ExportState>("idle");
   const [progress, setProgress] = useState(0);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const initWorker = useCallback(() => {
-    if (workerRef.current) return;
-    setExportState("initializing");
-    
-    // In Next.js, workers are instantiated using new URL relative to import.meta.url
-    workerRef.current = new Worker(new URL("../workers/ffmpeg.worker.ts", import.meta.url), {
-      type: "module",
-    });
-
-    workerRef.current.onmessage = (e: MessageEvent<WorkerResponse>) => {
-      const res = e.data;
-      switch (res.type) {
-        case "READY":
-          setExportState("ready");
-          break;
-        case "PROGRESS":
-          // Ensure it's between 0-100
-          setProgress(Math.round(Math.max(0, Math.min(100, res.progress * 100))));
-          break;
-        case "COMPLETE":
-          const blob = new Blob([res.data], { type: "video/mp4" });
-          const url = URL.createObjectURL(blob);
-          setOutputUrl(url);
-          setExportState("complete");
-          break;
-        case "ERROR":
-          console.error("FFmpeg Worker Error Details:", res.message); // Keep dev logs
-          setErrorMsg(mapErrorMessage(res.message));
-          setExportState("error");
-          cleanupWorker();
-          break;
-        case "CANCELLED":
-          setExportState("cancelled");
-          cleanupWorker();
-          break;
-      }
-    };
-
-    workerRef.current.postMessage({ type: "INIT" } as WorkerMessage);
+  // Helper: revoke the current output URL if one exists
+  const revokeOutputUrl = useCallback(() => {
+    if (outputUrlRef.current) {
+      URL.revokeObjectURL(outputUrlRef.current);
+      outputUrlRef.current = null;
+      setOutputUrl(null);
+    }
   }, []);
 
   const cleanupWorker = useCallback(() => {
@@ -78,43 +62,96 @@ export function useFFmpeg() {
       workerRef.current.terminate();
       workerRef.current = null;
     }
-    // Cleanup generated object URL to prevent memory leaks on unmount
-    if (outputUrl) {
-      URL.revokeObjectURL(outputUrl);
-    }
-  }, [outputUrl]);
+    // Always revoke via the ref — not a stale closure value
+    revokeOutputUrl();
+  }, [revokeOutputUrl]);
 
-  const processVideo = useCallback(async (
-    file: File,
-    startTime: number,
-    endTime: number,
-    crop: CropData | null
-  ) => {
-    if (!workerRef.current || exportState !== "ready") {
-      console.warn("Worker not ready yet.");
-      return;
-    }
-    
-    setExportState("processing");
-    setProgress(0);
-    setErrorMsg(null);
-    if (outputUrl) {
-      URL.revokeObjectURL(outputUrl);
-      setOutputUrl(null);
-    }
+  const initWorker = useCallback(() => {
+    if (workerRef.current) return;
+    setExportState("initializing");
 
-    // Convert file to ArrayBuffer
-    const arrayBuffer = await file.arrayBuffer();
+    workerRef.current = new Worker(
+      new URL("../workers/ffmpeg.worker.ts", import.meta.url),
+      { type: "module" }
+    );
 
-    workerRef.current.postMessage({
-      type: "PROCESS",
-      fileData: arrayBuffer,
-      fileName: file.name,
-      startTime,
-      endTime,
-      crop
-    } as WorkerMessage, [arrayBuffer]);
-  }, [exportState, outputUrl]);
+    workerRef.current.onmessage = (e: MessageEvent<WorkerResponse>) => {
+      const res = e.data;
+      switch (res.type) {
+        case "READY":
+          setExportState("ready");
+          break;
+
+        case "PROGRESS":
+          setProgress(Math.round(Math.max(0, Math.min(100, res.progress * 100))));
+          if (res.progress === 0) perf.mark("PROCESSING_STARTED");
+          break;
+
+        case "COMPLETE": {
+          const blob = new Blob([res.data], { type: "video/mp4" });
+          const url = URL.createObjectURL(blob);
+          // Keep ref in sync so cleanupWorker can always revoke it
+          outputUrlRef.current = url;
+          setOutputUrl(url);
+          setExportState("complete");
+          break;
+        }
+
+        case "ERROR":
+          // Keep raw error in dev logs; never expose to users
+          console.error("FFmpeg Worker Error Details:", res.message);
+          setErrorMsg(mapErrorMessage(res.message));
+          setExportState("error");
+          // Terminate crashed worker
+          if (workerRef.current) {
+            workerRef.current.terminate();
+            workerRef.current = null;
+          }
+          break;
+
+        case "CANCELLED":
+          setExportState("cancelled");
+          if (workerRef.current) {
+            workerRef.current.terminate();
+            workerRef.current = null;
+          }
+          break;
+      }
+    };
+
+    workerRef.current.postMessage({ type: "INIT" } as WorkerMessage);
+  }, []);
+
+  const processVideo = useCallback(
+    async (file: File, startTime: number, endTime: number, crop: CropData | null) => {
+      if (!workerRef.current || exportState !== "ready") {
+        console.warn("Worker not ready yet.");
+        return;
+      }
+
+      setExportState("processing");
+      setProgress(0);
+      setErrorMsg(null);
+      // Revoke any previous output URL before starting a new export
+      revokeOutputUrl();
+
+      const arrayBuffer = await file.arrayBuffer();
+
+      workerRef.current.postMessage(
+        {
+          type: "PROCESS",
+          fileData: arrayBuffer,
+          fileName: file.name,
+          startTime,
+          endTime,
+          crop,
+        } as WorkerMessage,
+        [arrayBuffer]
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [exportState, revokeOutputUrl]
+  );
 
   const cancelExport = useCallback(() => {
     if (workerRef.current && exportState === "processing") {
@@ -126,11 +163,8 @@ export function useFFmpeg() {
     setExportState("idle");
     setProgress(0);
     setErrorMsg(null);
-    if (outputUrl) {
-      URL.revokeObjectURL(outputUrl);
-      setOutputUrl(null);
-    }
-  }, [outputUrl]);
+    revokeOutputUrl();
+  }, [revokeOutputUrl]);
 
   return {
     exportState,
@@ -141,6 +175,6 @@ export function useFFmpeg() {
     processVideo,
     cancelExport,
     resetState,
-    cleanupWorker
+    cleanupWorker,
   };
 }

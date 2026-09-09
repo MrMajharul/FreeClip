@@ -1,19 +1,20 @@
 @import "tailwindcss";
 
-@import "tailwindcss";
-
 @theme {
   --color-background: #09090b; /* zinc-950 */
   --color-foreground: #fafafa; /* zinc-50 */
   --color-primary: #8b5cf6; /* violet-500 */
   --color-primary-foreground: #ffffff;
+  --color-secondary: #27272a; /* zinc-800 */
+  --color-secondary-foreground: #fafafa;
   --color-card: #18181b; /* zinc-900 */
   --color-card-foreground: #fafafa;
   --color-border: #27272a; /* zinc-800 */
   --color-muted: #27272a;
   --color-muted-foreground: #a1a1aa; /* zinc-400 */
   --color-accent: #3b82f6; /* blue-500 */
-  
+  --color-accent-foreground: #ffffff;
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -29,9 +30,38 @@ body {
   font-family: var(--font-sans), sans-serif;
 }
 
+/* Glassmorphism utility */
 .glass {
   background: rgba(24, 24, 27, 0.6);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Responsive editor layout helpers */
+.editor-container {
+  width: 100%;
+  max-width: 56rem; /* 4xl */
+}
+
+/* Ensure video player never overflows on small screens */
+.video-player-wrapper {
+  width: 100%;
+  max-width: 56rem;
+  aspect-ratio: 16 / 9;
+}
+
+/* Timeline handle touch targets — minimum 44px for mobile */
+.timeline-handle {
+  min-width: 2rem;
+  min-height: 100%;
+  touch-action: none;
+}
+
+/* Mobile-friendly button sizing */
+@media (max-width: 640px) {
+  .btn-export {
+    width: 100%;
+    justify-content: center;
+  }
 }
