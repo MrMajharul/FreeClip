@@ -5,7 +5,7 @@ import { Link, Loader2, AlertCircle, CheckCircle2, Clock, FileVideo } from "luci
 import UploadZone from "@/components/UploadZone";
 import VideoEditor from "@/components/VideoEditor";
 import { useYouTubeImport } from "@/hooks/useYouTubeImport";
-import type { VideoSource } from "@freeclip/shared";
+import type { VideoMetadata, VideoSource } from "@freeclip/shared";
 import { perf } from "@/lib/perf";
 
 // ─── Phase label helpers ──────────────────────────────────────────────────────
@@ -34,17 +34,20 @@ export default function Home() {
   const [ytUrl, setYtUrl] = useState("");
   const { importState, startImport, confirmImport, reset: resetImport } = useYouTubeImport();
 
-  // Local upload handler — converts to VideoSource
-  const handleUpload = (file: File, url: string, duration: number) => {
+  // Local upload handler — converts to VideoSource with rich metadata
+  const handleUpload = (file: File, url: string, metadata: VideoMetadata) => {
     perf.reset();
     perf.mark("LOCAL_UPLOAD_ACCEPTED");
     const source: VideoSource = {
       type: "local",
       file,
       url,
-      name: file.name,
-      duration,
-      size: file.size,
+      name: metadata.name,
+      duration: metadata.duration,
+      width: metadata.width,
+      height: metadata.height,
+      size: metadata.size,
+      metadata,
     };
     setVideoSource(source);
     perf.mark("EDITOR_READY");

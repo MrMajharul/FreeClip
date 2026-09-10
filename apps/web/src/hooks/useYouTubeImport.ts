@@ -259,13 +259,26 @@ export function useYouTubeImport(): UseYouTubeImportReturn {
       const file = new File([blob], fileName, { type: "video/mp4" });
       const objectUrl = URL.createObjectURL(file);
 
+      const metadata = {
+        name: title,
+        size: blob.size,
+        type: "video/mp4",
+        duration,
+        width: 1920,
+        height: 1080,
+        aspectRatio: 16 / 9,
+      };
+
       const source: VideoSource = {
         type: "youtube",
         file,
         url: objectUrl,
         name: title,
         duration,
+        width: 1920,
+        height: 1080,
         size: blob.size,
+        metadata,
       };
 
       dispatch({ type: "EDITOR_READY" });

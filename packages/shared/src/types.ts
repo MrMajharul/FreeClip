@@ -16,6 +16,7 @@ export type WorkerMessage =
       startTime: number;
       endTime: number;
       crop: CropData | null;
+      totalDuration?: number;
     }
   | { type: "CANCEL" };
 
@@ -26,7 +27,25 @@ export type WorkerResponse =
   | { type: "ERROR"; message: string }
   | { type: "CANCELLED" };
 
-// ─── Video Source ─────────────────────────────────────────────────────────────
+// ─── Video Metadata & Source ───────────────────────────────────────────────────
+
+export interface VideoMetadata {
+  name: string;
+  size: number;
+  type: string;
+  duration: number;
+  width: number;
+  height: number;
+  aspectRatio: number;
+}
+
+export interface VideoEditState {
+  trim: {
+    start: number;
+    end: number;
+  };
+  crop: CropData | null;
+}
 
 /**
  * Normalized representation of a video source.
@@ -45,7 +64,9 @@ export interface VideoSource {
   name: string;
   /** Duration in seconds */
   duration: number;
-  /** Optional metadata */
+  /** Optional rich metadata */
+  metadata?: VideoMetadata;
+  /** Optional dimensional metadata */
   width?: number;
   height?: number;
   /** File size in bytes */

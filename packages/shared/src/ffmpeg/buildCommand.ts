@@ -6,6 +6,8 @@ export interface BuildCommandParams {
   startTime: number;
   endTime: number;
   crop: CropData | null;
+  /** Total video duration in seconds. When provided, allows omitting -ss/-t if full duration is selected */
+  totalDuration?: number;
 }
 
 export function buildFFmpegCommand({
@@ -13,19 +15,27 @@ export function buildFFmpegCommand({
   outputFilename,
   startTime,
   endTime,
-  crop
+  crop,
+  totalDuration,
 }: BuildCommandParams): string[] {
   const args: string[] = [];
 
   // Input
   args.push("-i", inputFilename);
 
-  // Trim (applied after input for speed, or before. Standard is before if just copying, but for filtering we can put it after)
-  const duration = (endTime - startTime).toFixed(2);
-  args.push("-ss", startTime.toFixed(2));
-  args.push("-t", duration);
+  // Trim filters (conditional: only apply if video is trimmed or totalDuration not provided)
+  const isTrimmed =
+    totalDuration !== undefined
+      ? startTime > 0.01 || endTime < totalDuration - 0.05
+      : true;
 
-  // Filters
+  if (isTrimmed) {
+    const duration = (endTime - startTime).toFixed(2);
+    args.push("-ss", startTime.toFixed(2));
+    args.push("-t", duration);
+  }
+
+  // Crop Filter (conditional: only apply if crop is provided)
   if (crop) {
     const { x, y, width, height } = crop;
     // crop=w:h:x:y

@@ -35,7 +35,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
           throw new Error("FFmpeg not loaded. Send INIT first.");
         }
         
-        const { fileData, fileName, startTime, endTime, crop } = msg;
+        const { fileData, fileName, startTime, endTime, crop, totalDuration } = msg;
         
         // Write file to FFmpeg virtual FS
         await ffmpeg.writeFile(fileName, new Uint8Array(fileData));
@@ -46,7 +46,8 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
           outputFilename: outputName,
           startTime,
           endTime,
-          crop
+          crop,
+          totalDuration,
         });
 
         // Run FFmpeg

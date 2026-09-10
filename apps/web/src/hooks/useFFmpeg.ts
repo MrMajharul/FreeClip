@@ -14,19 +14,30 @@ export type ExportState =
 // ─── Error mapping ────────────────────────────────────────────────────────────
 
 const ERROR_MAP: Record<string, string> = {
-  MEM: "This video is too demanding for your browser memory. Try a smaller video.",
-  FORMAT: "Unable to process this video format. Please try another video.",
+  MEM: "Your browser does not have enough memory to process this video. Try a smaller file or close other tabs.",
+  FORMAT: "This video format is not supported by your browser.",
+  DECODE: "FreeClip could not process this video. Try another supported video format.",
   INIT: "Video engine could not be initialized.",
-  DEFAULT: "Video processing failed. Please try again.",
+  DEFAULT: "Export failed. Your original video is safe. Try again or use a smaller video.",
 };
 
 function mapErrorMessage(rawError: string): string {
   const lower = rawError.toLowerCase();
-  if (lower.includes("memory") || lower.includes("aborted(oom") || lower.includes("out of memory")) {
+  if (
+    lower.includes("memory") ||
+    lower.includes("aborted(oom") ||
+    lower.includes("out of memory") ||
+    lower.includes("allocation") ||
+    lower.includes("out of bounds") ||
+    lower.includes("cannot allocate")
+  ) {
     return ERROR_MAP.MEM;
   }
-  if (lower.includes("format") || lower.includes("codec")) {
+  if (lower.includes("format") || lower.includes("codec") || lower.includes("unsupported")) {
     return ERROR_MAP.FORMAT;
+  }
+  if (lower.includes("decode") || lower.includes("demux") || lower.includes("corrupt")) {
+    return ERROR_MAP.DECODE;
   }
   if (lower.includes("not loaded") || lower.includes("init")) {
     return ERROR_MAP.INIT;
@@ -123,7 +134,13 @@ export function useFFmpeg() {
   }, []);
 
   const processVideo = useCallback(
-    async (file: File, startTime: number, endTime: number, crop: CropData | null) => {
+    async (
+      file: File,
+      startTime: number,
+      endTime: number,
+      crop: CropData | null,
+      totalDuration?: number
+    ) => {
       if (!workerRef.current || exportState !== "ready") {
         console.warn("Worker not ready yet.");
         return;
@@ -135,7 +152,21 @@ export function useFFmpeg() {
       // Revoke any previous output URL before starting a new export
       revokeOutputUrl();
 
-      const arrayBuffer = await file.arrayBuffer();
+      let arrayBuffer: ArrayBuffer;
+      try {
+        // Guard against file allocations exceeding browser memory limits
+        if (file.size > 2 * 1024 * 1024 * 1024) {
+          throw new RangeError("File exceeds browser WebAssembly memory limit (2 GB).");
+        }
+        arrayBuffer = await file.arrayBuffer();
+      } catch (err: unknown) {
+        console.error("ArrayBuffer allocation error:", err);
+        setExportState("error");
+        setErrorMsg(
+          "Your browser does not have enough memory to process this video. Try a smaller file or close other tabs."
+        );
+        return;
+      }
 
       workerRef.current.postMessage(
         {
@@ -145,6 +176,7 @@ export function useFFmpeg() {
           startTime,
           endTime,
           crop,
+          totalDuration,
         } as WorkerMessage,
         [arrayBuffer]
       );

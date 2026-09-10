@@ -81,4 +81,75 @@ describe("buildFFmpegCommand", () => {
     const vfIdx = args.indexOf("-vf");
     expect(args[vfIdx + 1]).toBe("crop=1920:1080:0:0");
   });
+
+  describe("conditional filters", () => {
+    it("omits -ss and -t when full duration is selected (no trim)", () => {
+      const args = buildFFmpegCommand({
+        ...base,
+        startTime: 0,
+        endTime: 60,
+        totalDuration: 60,
+        crop: null,
+      });
+      expect(args).not.toContain("-ss");
+      expect(args).not.toContain("-t");
+      expect(args).not.toContain("-vf");
+    });
+
+    it("includes -ss and -t when trimmed from start", () => {
+      const args = buildFFmpegCommand({
+        ...base,
+        startTime: 5,
+        endTime: 60,
+        totalDuration: 60,
+        crop: null,
+      });
+      expect(args).toContain("-ss");
+      expect(args).toContain("-t");
+      expect(args).not.toContain("-vf");
+    });
+
+    it("includes -ss and -t when trimmed from end", () => {
+      const args = buildFFmpegCommand({
+        ...base,
+        startTime: 0,
+        endTime: 45,
+        totalDuration: 60,
+        crop: null,
+      });
+      expect(args).toContain("-ss");
+      expect(args).toContain("-t");
+      expect(args).not.toContain("-vf");
+    });
+
+    it("supports crop only without trim when full duration is selected", () => {
+      const crop: CropData = { x: 0, y: 0, width: 1280, height: 720 };
+      const args = buildFFmpegCommand({
+        ...base,
+        startTime: 0,
+        endTime: 100,
+        totalDuration: 100,
+        crop,
+      });
+      expect(args).not.toContain("-ss");
+      expect(args).not.toContain("-t");
+      expect(args).toContain("-vf");
+      expect(args[args.indexOf("-vf") + 1]).toBe("crop=1280:720:0:0");
+    });
+
+    it("supports both trim and crop together", () => {
+      const crop: CropData = { x: 10, y: 10, width: 640, height: 480 };
+      const args = buildFFmpegCommand({
+        ...base,
+        startTime: 10,
+        endTime: 30,
+        totalDuration: 100,
+        crop,
+      });
+      expect(args).toContain("-ss");
+      expect(args).toContain("-t");
+      expect(args).toContain("-vf");
+      expect(args[args.indexOf("-vf") + 1]).toBe("crop=640:480:10:10");
+    });
+  });
 });

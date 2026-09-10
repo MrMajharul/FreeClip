@@ -43,27 +43,38 @@ describe("Client-side YouTube URL pre-validation", () => {
   });
 });
 
-describe("Upload validation limits", () => {
-  const MAX_SIZE = 50 * 1024 * 1024;
-  const MAX_DURATION = 60;
+describe("Video Metadata & Formatting", () => {
+  function formatFileSize(bytes: number): string {
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
 
-  it("accepts file at exactly 50 MB boundary", () => {
-    const fileSize = MAX_SIZE; // exactly at limit
-    expect(fileSize > MAX_SIZE).toBe(false);
+  function formatDuration(seconds: number): string {
+    const m = Math.floor(seconds / 60);
+    const s = Math.round(seconds % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+
+  it("formats kilobytes correctly", () => {
+    expect(formatFileSize(512 * 1024)).toBe("512.0 KB");
   });
 
-  it("rejects file 1 byte over 50 MB", () => {
-    const fileSize = MAX_SIZE + 1;
-    expect(fileSize > MAX_SIZE).toBe(true);
+  it("formats megabytes correctly", () => {
+    expect(formatFileSize(150 * 1024 * 1024)).toBe("150.0 MB");
   });
 
-  it("accepts video at exactly 60 sec", () => {
-    expect(MAX_DURATION > MAX_DURATION).toBe(false); // not exceeded
+  it("formats gigabytes for large video files", () => {
+    expect(formatFileSize(1.5 * 1024 * 1024 * 1024)).toBe("1.50 GB");
   });
 
-  it("rejects video 1 second over 60 sec", () => {
-    const duration = MAX_DURATION + 1;
-    expect(duration > MAX_DURATION).toBe(true);
+  it("formats short duration (seconds)", () => {
+    expect(formatDuration(45)).toBe("0:45");
+  });
+
+  it("formats long duration exceeding previous 60s limit", () => {
+    expect(formatDuration(185)).toBe("3:05");
+    expect(formatDuration(1800)).toBe("30:00");
   });
 });
 

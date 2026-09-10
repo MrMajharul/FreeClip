@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import Cropper from "react-easy-crop";
 import TimelineTrimmer from "./TimelineTrimmer";
-import { Play, Pause, Scissors, Download, XCircle, Loader2, RotateCcw } from "lucide-react";
+import { Play, Pause, Scissors, Download, XCircle, Loader2, RotateCcw, FileVideo } from "lucide-react";
 import { useFFmpeg } from "../hooks/useFFmpeg";
 import type { CropData, VideoSource } from "@freeclip/shared";
 import { perf } from "@/lib/perf";
@@ -32,7 +32,15 @@ const CROP_RATIOS: CropRatioOption[] = [
   { label: "1:1", value: 1 },
   { label: "4:5", value: 4 / 5 },
   { label: "4:3", value: 4 / 3 },
+  { label: "Freeform", value: undefined },
 ];
+
+function formatFileSize(bytes?: number): string {
+  if (!bytes || bytes <= 0) return "";
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -53,8 +61,10 @@ export default function VideoEditor({ source, onStartOver }: VideoEditorProps) {
   // Cropper state
   const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [croppedAreaPercent, setCroppedAreaPercent] = useState<Area | null>(null);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [isCropMode, setIsCropMode] = useState(false);
+  const [isCropApplied, setIsCropApplied] = useState(false);
   const [selectedRatioIndex, setSelectedRatioIndex] = useState(0); // default 16:9
 
   // Video Ref
@@ -92,10 +102,10 @@ export default function VideoEditor({ source, onStartOver }: VideoEditorProps) {
     if (exportState === "ready") {
       perf.mark("FFMPEG_INITIALIZED");
       let cropData: CropData | null = null;
-      if (croppedAreaPixels) {
+      if (isCropApplied && croppedAreaPixels) {
         cropData = { ...croppedAreaPixels };
       }
-      processVideo(file, startTime, endTime, cropData);
+      processVideo(file, startTime, endTime, cropData, duration);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exportState]);
@@ -108,9 +118,31 @@ export default function VideoEditor({ source, onStartOver }: VideoEditorProps) {
     }
   }, [exportState]);
 
-  const onCropComplete = useCallback((_croppedArea: Area, pixels: Area) => {
+  const onCropComplete = useCallback((percent: Area, pixels: Area) => {
+    setCroppedAreaPercent(percent);
     setCroppedAreaPixels(pixels);
   }, []);
+
+  const handleToggleCrop = () => {
+    if (isCropMode) {
+      // Exiting crop mode ("Save Crop")
+      if (croppedAreaPixels) {
+        setIsCropApplied(true);
+      }
+      setIsCropMode(false);
+    } else {
+      // Entering crop mode ("Crop Video")
+      setIsCropMode(true);
+    }
+  };
+
+  const handleResetCrop = () => {
+    setCroppedAreaPixels(null);
+    setCroppedAreaPercent(null);
+    setIsCropApplied(false);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+  };
 
   const togglePlay = () => {
     if (videoRef.current) {
@@ -127,13 +159,15 @@ export default function VideoEditor({ source, onStartOver }: VideoEditorProps) {
     if (videoRef.current) {
       const time = videoRef.current.currentTime;
       setCurrentTime(time);
-      // Enforce trimmer bounds during playback
+      // Enforce trimmer bounds during playback (looping seamlessly within selection)
       if (time >= endTime) {
         videoRef.current.pause();
         setIsPlaying(false);
         videoRef.current.currentTime = startTime;
+        setCurrentTime(startTime);
       } else if (time < startTime) {
         videoRef.current.currentTime = startTime;
+        setCurrentTime(startTime);
       }
     }
   };
@@ -148,8 +182,11 @@ export default function VideoEditor({ source, onStartOver }: VideoEditorProps) {
   const handleTrimChange = (start: number, end: number) => {
     setStartTime(start);
     setEndTime(end);
-    if (currentTime < start || currentTime > end) {
-      handleSeek(start);
+    if (videoRef.current) {
+      if (currentTime < start || currentTime > end) {
+        videoRef.current.currentTime = start;
+        setCurrentTime(start);
+      }
     }
   };
 
@@ -159,8 +196,42 @@ export default function VideoEditor({ source, onStartOver }: VideoEditorProps) {
 
   return (
     <div className="w-full flex flex-col items-center gap-6 sm:gap-8">
+      {/* Video Metadata Header Bar */}
+      <div className="w-full max-w-4xl flex items-center justify-between text-xs sm:text-sm text-muted-foreground bg-card/60 backdrop-blur-md px-4 py-2.5 rounded-xl border border-border">
+        <div className="flex items-center gap-2 truncate">
+          <FileVideo className="w-4 h-4 text-primary flex-shrink-0" />
+          <span className="font-medium text-foreground truncate max-w-[180px] sm:max-w-xs" title={source.name}>
+            {source.name}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+          {source.size && (
+            <span className="hidden sm:inline font-mono">
+              {formatFileSize(source.size)}
+            </span>
+          )}
+          {source.width && source.height && (
+            <span className="bg-secondary px-2 py-0.5 rounded font-mono text-xs text-secondary-foreground">
+              {source.width}×{source.height}
+            </span>
+          )}
+          <span className="font-mono">
+            {duration.toFixed(1)}s
+          </span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              source.type === "youtube"
+                ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+            }`}
+          >
+            {source.type === "youtube" ? "YouTube" : "Local"}
+          </span>
+        </div>
+      </div>
+
       {/* Video / Cropper Area */}
-      <div className="relative w-full max-w-4xl aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-border group">
+      <div className="relative w-full max-w-4xl aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-border group flex items-center justify-center">
         {isCropMode ? (
           <Cropper
             video={url}
@@ -175,11 +246,49 @@ export default function VideoEditor({ source, onStartOver }: VideoEditorProps) {
               mediaClassName: "object-contain",
             }}
           />
+        ) : isCropApplied && croppedAreaPercent ? (
+          /* Real-Time Non-Destructive Cropped Preview */
+          <div
+            className="w-full h-full relative overflow-hidden flex items-center justify-center cursor-pointer"
+            onClick={togglePlay}
+          >
+            <div
+              className="relative overflow-hidden shadow-lg transition-all"
+              style={{
+                width: "100%",
+                height: "100%",
+                maxWidth: "100%",
+                maxHeight: "100%",
+                aspectRatio: `${croppedAreaPercent.width} / ${croppedAreaPercent.height}`,
+              }}
+            >
+              <video
+                ref={videoRef}
+                src={url}
+                style={{
+                  position: "absolute",
+                  width: `${(100 / croppedAreaPercent.width) * 100}%`,
+                  height: `${(100 / croppedAreaPercent.height) * 100}%`,
+                  left: `${-croppedAreaPercent.x * (100 / croppedAreaPercent.width)}%`,
+                  top: `${-croppedAreaPercent.y * (100 / croppedAreaPercent.height)}%`,
+                  maxWidth: "none",
+                  maxHeight: "none",
+                  objectFit: "fill",
+                }}
+                onTimeUpdate={handleTimeUpdate}
+                onEnded={() => {
+                  setIsPlaying(false);
+                  handleSeek(startTime);
+                }}
+              />
+            </div>
+          </div>
         ) : (
+          /* Full uncropped preview */
           <video
             ref={videoRef}
             src={url}
-            className="w-full h-full object-contain"
+            className="w-full h-full object-contain cursor-pointer"
             onClick={togglePlay}
             onTimeUpdate={handleTimeUpdate}
             onEnded={() => {
@@ -203,6 +312,11 @@ export default function VideoEditor({ source, onStartOver }: VideoEditorProps) {
               <div className="text-white/90 text-xs sm:text-sm font-medium tabular-nums">
                 {currentTime.toFixed(2)}s / {duration.toFixed(2)}s
               </div>
+              {isCropApplied && (
+                <span className="text-xs bg-primary/30 text-primary-foreground border border-primary/40 px-2 py-0.5 rounded-full font-medium">
+                  Cropped ({currentRatio.label})
+                </span>
+              )}
               {source.type === "youtube" && (
                 <span className="ml-auto text-xs bg-red-500/80 text-white px-2 py-0.5 rounded-full font-medium">
                   YouTube
@@ -240,18 +354,34 @@ export default function VideoEditor({ source, onStartOver }: VideoEditorProps) {
               </div>
             )}
 
+            {/* Reset Crop Button */}
+            {isCropApplied && !isCropMode && (
+              <button
+                id="reset-crop-btn"
+                onClick={handleResetCrop}
+                disabled={isExporting}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-border hover:bg-white/5 transition-colors text-xs text-muted-foreground hover:text-white disabled:opacity-50"
+                title="Reset crop back to original framing"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset Crop
+              </button>
+            )}
+
             <button
               id="crop-toggle-btn"
-              onClick={() => setIsCropMode(!isCropMode)}
+              onClick={handleToggleCrop}
               disabled={isExporting}
               className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full border transition-all text-sm ${
                 isCropMode
                   ? "bg-primary text-primary-foreground border-primary"
+                  : isCropApplied
+                  ? "border-primary/60 bg-primary/10 text-foreground hover:bg-primary/20"
                   : "border-border hover:bg-white/5"
               } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               <Scissors className="w-4 h-4" />
-              {isCropMode ? "Save Crop" : "Crop Video"}
+              {isCropMode ? "Save Crop" : isCropApplied ? "Adjust Crop" : "Crop Video"}
             </button>
           </div>
         </div>

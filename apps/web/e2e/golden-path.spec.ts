@@ -134,20 +134,21 @@ test.describe("FreeClip — Input Boundary Tests", () => {
       buffer: Buffer.from("not a video"),
     });
 
-    await expect(page.getByText(/Unsupported file format/i)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("upload-error")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/not supported/i)).toBeVisible({ timeout: 5_000 });
   });
 
-  test("shows error for file over 50 MB", async ({ page }) => {
+  test("accepts file over 50 MB without artificial size error", async ({ page }) => {
     await page.goto("/");
 
     const fileInput = page.locator('input[type="file"]');
-    const tempLargePath = path.resolve(__dirname, "fixtures/temp-oversize.mp4");
+    const tempLargePath = path.resolve(__dirname, "fixtures/temp-large.mp4");
     fs.writeFileSync(tempLargePath, Buffer.alloc(51 * 1024 * 1024));
 
     try {
       await fileInput.setInputFiles(tempLargePath);
-      await expect(page.getByTestId("upload-error")).toBeVisible({ timeout: 5_000 });
-      await expect(page.getByText("File is too large")).toBeVisible({ timeout: 5_000 });
+      // Ensure no 50MB size rejection error is shown
+      await expect(page.getByText("File is too large")).not.toBeVisible();
     } finally {
       if (fs.existsSync(tempLargePath)) {
         fs.unlinkSync(tempLargePath);

@@ -2,13 +2,11 @@
 
 import React, { useCallback, useState } from "react";
 import { UploadCloud, FileWarning } from "lucide-react";
+import type { VideoMetadata } from "@freeclip/shared";
 
 interface UploadZoneProps {
-  onUpload: (file: File, objectUrl: string, duration: number) => void;
+  onUpload: (file: File, objectUrl: string, metadata: VideoMetadata) => void;
 }
-
-const MAX_SIZE = 50 * 1024 * 1024; // 50MB
-const MAX_DURATION = 60; // 60 seconds
 
 export default function UploadZone({ onUpload }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -19,34 +17,45 @@ export default function UploadZone({ onUpload }: UploadZoneProps) {
     setError(null);
     setIsLoading(true);
 
-    if (!file.type.startsWith("video/mp4") && !file.type.startsWith("video/webm")) {
-      setError("Unsupported file format. Please upload MP4 or WebM.");
-      setIsLoading(false);
-      return;
-    }
-
-    if (file.size > MAX_SIZE) {
-      setError("File is too large. Maximum size is 50MB.");
+    const isVideo = file.type.startsWith("video/") || /\.(mp4|webm|mov|m4v|mkv)$/i.test(file.name);
+    if (!isVideo) {
+      setError("This video format is not supported by your browser.");
       setIsLoading(false);
       return;
     }
 
     const objectUrl = URL.createObjectURL(file);
     const videoElement = document.createElement("video");
-    
+    videoElement.preload = "metadata";
+
     videoElement.addEventListener("loadedmetadata", () => {
       const duration = videoElement.duration;
-      if (duration > MAX_DURATION) {
-        setError(`Video is too long (${Math.round(duration)}s). Maximum duration is 60 seconds.`);
+      const width = videoElement.videoWidth;
+      const height = videoElement.videoHeight;
+
+      if (!duration || isNaN(duration) || duration <= 0) {
+        setError("FreeClip could not preview this video. Try another supported video format.");
         URL.revokeObjectURL(objectUrl);
-      } else {
-        onUpload(file, objectUrl, duration);
+        setIsLoading(false);
+        return;
       }
+
+      const metadata: VideoMetadata = {
+        name: file.name,
+        size: file.size,
+        type: file.type || "video/mp4",
+        duration,
+        width: width || 1920,
+        height: height || 1080,
+        aspectRatio: width && height ? width / height : 16 / 9,
+      };
+
+      onUpload(file, objectUrl, metadata);
       setIsLoading(false);
     });
 
     videoElement.addEventListener("error", () => {
-      setError("Failed to load video metadata. The file might be corrupted.");
+      setError("This video format is not supported by your browser or cannot be decoded.");
       URL.revokeObjectURL(objectUrl);
       setIsLoading(false);
     });
@@ -96,15 +105,17 @@ export default function UploadZone({ onUpload }: UploadZoneProps) {
           <input
             type="file"
             className="hidden"
-            accept="video/mp4,video/webm"
+            accept="video/mp4,video/webm,video/*"
             onChange={onFileChange}
             disabled={isLoading}
           />
         </label>
         
         <div className="mt-6 text-sm text-muted-foreground space-y-1">
-          <p>Supported formats: MP4, WebM</p>
-          <p>Maximum size: 50MB • Maximum duration: 60s</p>
+          <p>Supported formats: MP4, WebM and browser-supported video formats</p>
+          <p className="text-xs text-muted-foreground/80">
+            No artificial file-size limit • Processing depends on browser and device memory
+          </p>
         </div>
       </div>
 
