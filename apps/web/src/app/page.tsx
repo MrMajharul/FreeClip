@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Link, Loader2, AlertCircle, CheckCircle2, Clock, FileVideo } from "lucide-react";
+import Logo from "@/components/Logo";
 import UploadZone from "@/components/UploadZone";
 import VideoEditor from "@/components/VideoEditor";
 import { useYouTubeImport } from "@/hooks/useYouTubeImport";
@@ -97,9 +98,18 @@ export default function Home() {
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-accent/20 rounded-full blur-[128px] pointer-events-none" />
 
         <div className="z-10 w-full max-w-5xl flex flex-col items-start">
-          <h1 className="text-2xl sm:text-3xl font-bold mb-6 sm:mb-8 bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent">
-            Edit Video
-          </h1>
+          <div className="w-full flex items-center justify-between mb-6 sm:mb-8">
+            <button
+              onClick={handleStartOver}
+              className="hover:opacity-85 transition-opacity focus:outline-none"
+              title="Return to FreeClip Home"
+            >
+              <Logo size="sm" />
+            </button>
+            <h1 className="text-xl sm:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent">
+              Edit Video
+            </h1>
+          </div>
 
           <VideoEditor source={videoSource} onStartOver={handleStartOver} />
         </div>
@@ -115,8 +125,8 @@ export default function Home() {
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-accent/20 rounded-full blur-[128px] pointer-events-none" />
 
       <div className="z-10 w-full max-w-5xl flex flex-col items-center text-center">
-        <h1 className="text-4xl sm:text-5xl md:text-7xl font-extrabold tracking-tight mb-4 sm:mb-6 bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent">
-          FreeClip
+        <h1 className="mb-4 sm:mb-6">
+          <Logo size="xl" />
         </h1>
         <p className="text-base sm:text-lg md:text-xl text-muted-foreground max-w-2xl mb-8 sm:mb-12">
           Crop and trim videos directly in your browser. Zero server uploads, absolute privacy.
